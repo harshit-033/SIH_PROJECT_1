@@ -91,8 +91,8 @@ You should see `llama3.2:latest`.
 Clone the repository:
 
 ```powershell
-git clone <your-repository-url>
-cd <your-repository-folder>
+git clone https://github.com/harshit-033/SIH_PROJECT_1.git
+cd SIH_PROJECT_1
 ```
 
 Create a virtual environment:
