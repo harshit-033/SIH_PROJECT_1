@@ -64,9 +64,12 @@ Upon startup, the console displays:
 
 | Capability | Admin Role | User Role | Unauthenticated |
 | :--- | :--- | :--- | :--- |
-| **Login** | YES | YES | NO |
+| **Login** | YES (Single Active Session) | YES (Multi-Client) | NO |
 | **Use AI Workspace (Chat & Documents)** | YES | YES | NO (401) |
 | **Admin Dashboard UI** | YES | NO (Hidden) | NO |
+| **Admin Self-Management ("My Account")** | YES | NO (403) | NO (401) |
+| **Change Own Username (`PATCH /api/admin/me`)** | YES | NO (403) | NO (401) |
+| **Change Own Password (`POST /api/admin/me/change-password`)** | YES | NO (403) | NO (401) |
 | **Create Users (`POST /api/admin/users`)** | YES | NO (403) | NO (401) |
 | **View Users (`GET /api/admin/users`)** | YES | NO (403) | NO (401) |
 | **Remove / Deactivate User (`DELETE /api/admin/users/{id}`)** | YES | NO (403) | NO (401) |
@@ -76,7 +79,18 @@ Upon startup, the console displays:
 
 ---
 
-## 5. API Endpoints Reference
+## 5. Single Active Admin Session Invariant
+
+The server strictly enforces that an admin account can have **at most one valid active login session** across all client machines at any given time:
+- When an admin is logged in on System A, login attempts using the same admin credentials on System B are rejected with:
+  `HTTP 409 Conflict: "Admin account is already logged in on another system."`
+- Once System A logs out (or its session token expires), System B may log in immediately.
+- Normal user accounts (`user1`, `user2`, etc.) are unaffected and support multi-client concurrent logins.
+- Concurrency and race conditions are fully protected via reentrant locking (`threading.RLock`) during the check-and-set sequence.
+
+---
+
+## 6. API Endpoints Reference
 
 | Method | Endpoint | Description | Access Level |
 | :--- | :--- | :--- | :--- |
@@ -85,6 +99,8 @@ Upon startup, the console displays:
 | `POST` | `/api/auth/login` | Authenticates user & returns bearer token and session ID | Public |
 | `POST` | `/api/auth/logout` | Revokes token, ends session, cleans up temporary files | Authenticated |
 | `GET` | `/api/auth/me` | Returns current user's profile and assigned role | Authenticated |
+| `PATCH` | `/api/admin/me` | Changes logged-in admin's username (enforces uniqueness) | **Admin Only** |
+| `POST` | `/api/admin/me/change-password` | Updates admin password (requires old password verification) | **Admin Only** |
 | `GET` | `/api/admin/users` | Lists all users with status, role, and summary counts | **Admin Only** |
 | `POST` | `/api/admin/users` | Creates a new user with `role="user"` | **Admin Only** |
 | `DELETE` | `/api/admin/users/{id}` | Deactivates / removes user and invalidates their tokens | **Admin Only** |
@@ -98,22 +114,23 @@ Upon startup, the console displays:
 
 ---
 
-## 6. Final Acceptance Scorecard
+## 7. Final Acceptance Scorecard
 
 | Area | Status |
 | :--- | :--- |
-| **Authentication** | **PASS** |
-| **Two-Role Model (`admin` / `user`)** | **PASS** |
-| **Admin Bootstrap** | **PASS** |
-| **Admin User Creation** | **PASS** |
-| **Admin User Removal** | **PASS** |
-| **Admin Dashboard UI** | **PASS** |
-| **User AI Access** | **PASS** |
-| **Admin AI Access** | **PASS** |
-| **Server-Side RBAC Enforcement** | **PASS** |
-| **Session Isolation** | **PASS** |
-| **Data Isolation** | **PASS** |
-| **Password Security (PBKDF2/Salted)** | **PASS** |
-| **Multi-Client Tests** | **PASS** |
-| **Regression Tests** | **PASS** |
+| **Admin username editing** | **PASS** |
+| **Username uniqueness** | **PASS** |
+| **Admin password change** | **PASS** |
+| **Old password required** | **PASS** |
+| **Password hashing (PBKDF2/Salted)** | **PASS** |
+| **Admin-only profile access** | **PASS** |
+| **Single active admin session** | **PASS** |
+| **Second-system login rejection (409)** | **PASS** |
+| **Logout releases session** | **PASS** |
+| **Session expiration/recovery** | **PASS** |
+| **Concurrent login protection** | **PASS** |
+| **Existing RBAC regression** | **PASS** |
+| **AI/OCR/document regression** | **PASS** |
+| **Multi-client regression** | **PASS** |
 | **Documentation** | **UPDATED** |
+

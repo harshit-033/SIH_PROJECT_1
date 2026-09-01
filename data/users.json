@@ -1,13 +1,54 @@
 {
   "users": [
     {
-      "id": "usr_67f350de25a0",
+      "id": "usr_admin_default",
       "username": "admin",
-      "password_hash": "171ea848972610f86dcc4023131c87aa:efe25e62c7d80457026ada876f913545461713756357efa5a28cab82e227d378",
+      "password_hash": "22bba4bbcb89d665d071c273f20739b3:c6a57f65c6bb9de57df466674767898c60ef43979690069cbc4be771f9dc4379",
       "role": "admin",
       "is_active": true,
       "created_at": 1788293691.4961166,
-      "last_login": 1788293989.1361995
+      "last_login": 1788295541.3291402,
+      "active_session_token": "0-XjLmaDCG6G9p9AdQCqQGXzH0N5cw2ObDY05_mp6zQ"
+    },
+    {
+      "id": "usr_user1_default",
+      "username": "user1",
+      "password_hash": "89db8b119cf4932e4dceeef664ea6c08:d36c32f539aeaf91dc9d2e97f478c9e4b8a98b566c32a2b7bd8085d14c4467c0",
+      "role": "user",
+      "is_active": true,
+      "created_at": 1788293691.5,
+      "last_login": 1788295561.2027884,
+      "active_session_token": null
+    },
+    {
+      "id": "usr_user2_default",
+      "username": "user2",
+      "password_hash": "2267167fe38702d5790832e274a511cc:63ee5449a6e23a3034483057f9c7fab28b62952cbf4e3bd7b21b0ffc1a399905",
+      "role": "user",
+      "is_active": true,
+      "created_at": 1788293691.51,
+      "last_login": 1788295561.2463553,
+      "active_session_token": null
+    },
+    {
+      "id": "usr_inspector_default",
+      "username": "inspector",
+      "password_hash": "ca89a7786ce578d6dd63bd3530a57e00:605929d47da42cb4c065a6e5d0aabee3d6e5f53afebf467081e8e06a0019cd0d",
+      "role": "user",
+      "is_active": true,
+      "created_at": 1788293691.52,
+      "last_login": null,
+      "active_session_token": null
+    },
+    {
+      "id": "usr_52074a282eef",
+      "username": "inactive_b26a8b",
+      "password_hash": "eac4394ba688db11a3b02027dd4a9b7b:71bec616bff1bbb7b17b49a7e094567f832d2fcfd3e6e4324f69fdbd4b9a57c7",
+      "role": "user",
+      "is_active": false,
+      "created_at": 1788295523.883271,
+      "last_login": null,
+      "active_session_token": null
     }
   ]
 }

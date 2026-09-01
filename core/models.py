@@ -66,6 +66,9 @@ class UserModel:
     is_active: bool = True
     created_at: float = field(default_factory=time.time)
     last_login: Optional[float] = None
+    # For admin accounts: tracks the single allowed active bearer token.
+    # None means no active session. Set on login, cleared on logout/expiry.
+    active_session_token: Optional[str] = None
 
     def to_safe_dict(self) -> Dict[str, Any]:
         return {

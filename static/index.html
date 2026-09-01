@@ -127,43 +127,104 @@
     <!-- ADMIN DASHBOARD VIEW (Admin Only) -->
     <div id="admin-dashboard-view" class="view-container hidden">
       <div class="admin-header-bar">
-        <h2>Local AI Admin Panel - User Management</h2>
+        <div class="admin-tab-nav">
+          <button id="admin-tab-users-btn" class="btn btn-tab active">👥 User Management</button>
+          <button id="admin-tab-account-btn" class="btn btn-tab">⚙️ My Account</button>
+        </div>
         <button id="open-create-user-modal-btn" class="btn btn-primary">+ Create New User</button>
       </div>
 
-      <div class="admin-stats-row">
-        <div class="stat-card">
-          <div class="stat-title">Total Users</div>
-          <div class="stat-value" id="stat-total-users">-</div>
+      <!-- USERS TAB -->
+      <div id="admin-users-tab" class="admin-tab-content">
+        <div class="admin-stats-row">
+          <div class="stat-card">
+            <div class="stat-title">Total Users</div>
+            <div class="stat-value" id="stat-total-users">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-title">Active Users</div>
+            <div class="stat-value" id="stat-active-users">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-title">Admins</div>
+            <div class="stat-value" id="stat-admin-users">-</div>
+          </div>
         </div>
-        <div class="stat-card">
-          <div class="stat-title">Active Users</div>
-          <div class="stat-value" id="stat-active-users">-</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-title">Admins</div>
-          <div class="stat-value" id="stat-admin-users">-</div>
+
+        <div class="admin-table-container">
+          <table class="user-table">
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Created At</th>
+                <th>Last Login</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="user-table-body">
+              <tr>
+                <td colspan="6" style="text-align: center; color: #8b949e;">Loading users...</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
-      <div class="admin-table-container">
-        <table class="user-table">
-          <thead>
-            <tr>
-              <th>Username</th>
-              <th>Role</th>
-              <th>Status</th>
-              <th>Created At</th>
-              <th>Last Login</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody id="user-table-body">
-            <tr>
-              <td colspan="6" style="text-align: center; color: #8b949e;">Loading users...</td>
-            </tr>
-          </tbody>
-        </table>
+      <!-- MY ACCOUNT TAB -->
+      <div id="admin-account-tab" class="admin-tab-content hidden">
+        <div class="account-container">
+          <div class="account-card">
+            <h3>👤 Admin Profile</h3>
+            <p class="account-subtitle">Manage your admin username and password credentials.</p>
+
+            <div class="account-info-box">
+              <div class="info-row">
+                <span class="info-label">Current Username:</span>
+                <span class="info-val" id="account-current-username">admin</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Role:</span>
+                <span class="badge-role-admin">admin</span>
+              </div>
+            </div>
+
+            <!-- Edit Username Form -->
+            <div class="account-form-section">
+              <h4>Change Username</h4>
+              <form id="change-username-form">
+                <div class="form-group">
+                  <label for="new-username-input">New Username</label>
+                  <input type="text" id="new-username-input" class="form-input" placeholder="Enter new username" required maxlength="50" />
+                </div>
+                <div id="username-change-msg" class="form-msg hidden"></div>
+                <button type="submit" class="btn btn-primary" id="save-username-btn">Update Username</button>
+              </form>
+            </div>
+
+            <!-- Change Password Form -->
+            <div class="account-form-section">
+              <h4>Change Password</h4>
+              <form id="change-password-form">
+                <div class="form-group">
+                  <label for="current-password-input">Current Password</label>
+                  <input type="password" id="current-password-input" class="form-input" placeholder="Enter current password" required />
+                </div>
+                <div class="form-group">
+                  <label for="new-password-input">New Password</label>
+                  <input type="password" id="new-password-input" class="form-input" placeholder="Enter new password (min 4 chars)" required minlength="4" maxlength="128" />
+                </div>
+                <div class="form-group">
+                  <label for="confirm-password-input">Confirm New Password</label>
+                  <input type="password" id="confirm-password-input" class="form-input" placeholder="Re-enter new password" required minlength="4" maxlength="128" />
+                </div>
+                <div id="password-change-msg" class="form-msg hidden"></div>
+                <button type="submit" class="btn btn-primary" id="save-password-btn">Change Password</button>
+              </form>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 

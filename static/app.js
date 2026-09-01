@@ -49,6 +49,21 @@ const createUserForm = document.getElementById("create-user-form");
 const createUserError = document.getElementById("create-user-error");
 const cancelCreateUserBtn = document.getElementById("cancel-create-user-btn");
 
+// Admin Tabs & My Account Elements
+const adminTabUsersBtn = document.getElementById("admin-tab-users-btn");
+const adminTabAccountBtn = document.getElementById("admin-tab-account-btn");
+const adminUsersTab = document.getElementById("admin-users-tab");
+const adminAccountTab = document.getElementById("admin-account-tab");
+const accountCurrentUsername = document.getElementById("account-current-username");
+const changeUsernameForm = document.getElementById("change-username-form");
+const newUsernameInput = document.getElementById("new-username-input");
+const usernameChangeMsg = document.getElementById("username-change-msg");
+const changePasswordForm = document.getElementById("change-password-form");
+const currentPasswordInput = document.getElementById("current-password-input");
+const newPasswordInput = document.getElementById("new-password-input");
+const confirmPasswordInput = document.getElementById("confirm-password-input");
+const passwordChangeMsg = document.getElementById("password-change-msg");
+
 document.addEventListener("DOMContentLoaded", () => {
   if (authToken) {
     loginModal.style.display = "none";
@@ -323,6 +338,115 @@ window.removeUser = async function(userId, username) {
     alert(`Error: ${err.message}`);
   }
 };
+
+// -------------------------------------------------------------
+// Admin Tab Switching & My Account Profile Management
+// -------------------------------------------------------------
+adminTabUsersBtn.addEventListener("click", () => switchAdminTab("users"));
+adminTabAccountBtn.addEventListener("click", () => switchAdminTab("account"));
+
+function switchAdminTab(tabName) {
+  if (tabName === "users") {
+    adminTabUsersBtn.classList.add("active");
+    adminTabAccountBtn.classList.remove("active");
+    adminUsersTab.classList.remove("hidden");
+    adminAccountTab.classList.add("hidden");
+    loadAdminUsers();
+  } else {
+    adminTabAccountBtn.classList.add("active");
+    adminTabUsersBtn.classList.remove("active");
+    adminAccountTab.classList.remove("hidden");
+    adminUsersTab.classList.add("hidden");
+    loadAccountProfile();
+  }
+}
+
+async function loadAccountProfile() {
+  try {
+    const res = await fetch("/api/auth/me", {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    if (res.ok) {
+      const user = await res.json();
+      accountCurrentUsername.textContent = user.username;
+      newUsernameInput.value = "";
+    }
+  } catch (err) {
+    console.error("Failed to load account profile:", err);
+  }
+}
+
+changeUsernameForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  usernameChangeMsg.className = "form-msg hidden";
+  const newUsername = newUsernameInput.value.trim();
+  if (!newUsername) return;
+
+  try {
+    const res = await fetch("/api/admin/me", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ username: newUsername }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || "Failed to update username");
+    }
+
+    usernameChangeMsg.textContent = "Username updated successfully!";
+    usernameChangeMsg.className = "form-msg success";
+    accountCurrentUsername.textContent = data.user.username;
+    localStorage.setItem("sih_username", data.user.username);
+    userDisplay.textContent = `${data.user.username} (${data.user.role.toUpperCase()})`;
+    newUsernameInput.value = "";
+  } catch (err) {
+    usernameChangeMsg.textContent = err.message;
+    usernameChangeMsg.className = "form-msg error";
+  }
+});
+
+changePasswordForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  passwordChangeMsg.className = "form-msg hidden";
+  const current_password = currentPasswordInput.value;
+  const new_password = newPasswordInput.value;
+  const confirm_password = confirmPasswordInput.value;
+
+  if (new_password !== confirm_password) {
+    passwordChangeMsg.textContent = "New password and confirmation do not match.";
+    passwordChangeMsg.className = "form-msg error";
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/admin/me/change-password", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ current_password, new_password, confirm_password }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || "Failed to change password");
+    }
+
+    passwordChangeMsg.textContent = "Password changed successfully!";
+    passwordChangeMsg.className = "form-msg success";
+    currentPasswordInput.value = "";
+    newPasswordInput.value = "";
+    confirmPasswordInput.value = "";
+  } catch (err) {
+    passwordChangeMsg.textContent = err.message;
+    passwordChangeMsg.className = "form-msg error";
+  }
+});
 
 // -------------------------------------------------------------
 // Workspace & Chat Functions

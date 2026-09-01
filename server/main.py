@@ -30,7 +30,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.ai_service import AIService, DEFAULT_MODEL_NAME
-from core.auth import AuthService, hash_password
+from core.auth import AuthService, hash_password, verify_password
 from core.document_service import DocumentService
 from core.file_handler import FileHandler
 from core.models import AppMode, AuthToken, DocumentMetadata, UserCredentials, UserModel, UserRole
@@ -80,6 +80,16 @@ class LoginRequest(BaseModel):
 class CreateUserRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=50)
     password: str = Field(..., min_length=4, max_length=128)
+
+
+class UpdateUsernameRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=50)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=4, max_length=128)
+    confirm_password: str = Field(..., min_length=1)
 
 
 class ChatRequest(BaseModel):
@@ -215,6 +225,11 @@ async def login(creds: LoginRequest):
     token = auth_service.authenticate(
         UserCredentials(username=creds.username, password=creds.password)
     )
+    if token == "ADMIN_ALREADY_ACTIVE":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Admin account is already logged in on another system.",
+        )
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -343,6 +358,87 @@ async def remove_user(
 
     logger.info("Admin '%s' removed user '%s' (ID: %s)", admin.username, target.username, user_id)
     return {"message": f"User '{target.username}' removed successfully."}
+
+
+# -------------------------------------------------------------
+# Routes: Admin Profile Self-Management ("My Account")
+# -------------------------------------------------------------
+@app.patch("/api/admin/me")
+@app.patch("/admin/me")
+async def update_admin_username(
+    req: UpdateUsernameRequest,
+    admin: UserModel = Depends(require_admin),
+):
+    clean_username = req.username.strip()
+    if not clean_username:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username cannot be empty.",
+        )
+
+    try:
+        updated = user_store.update_username(admin.id, clean_username)
+    except ValueError as exc:
+        msg = str(exc)
+        if "already taken" in msg.lower() or "already exists" in msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=msg,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=msg,
+        )
+
+    # Sync username in any active sessions for this admin
+    for sess in session_manager._sessions.values():
+        if sess.user_id == admin.id:
+            sess.username = updated.username
+
+    logger.info("Admin updated username to '%s' (ID: %s)", updated.username, admin.id)
+    return {
+        "message": "Username updated successfully.",
+        "user": updated.to_safe_dict(),
+    }
+
+
+@app.post("/api/admin/me/change-password")
+@app.post("/admin/me/change-password")
+async def change_admin_password(
+    req: ChangePasswordRequest,
+    admin: UserModel = Depends(require_admin),
+):
+    if not req.current_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is required.",
+        )
+
+    # Verify current password
+    if not verify_password(req.current_password, admin.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect.",
+        )
+
+    # Check new password confirmation
+    if req.new_password != req.confirm_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password and confirmation do not match.",
+        )
+
+    if len(req.new_password) < 4:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 4 characters long.",
+        )
+
+    new_hash = hash_password(req.new_password)
+    user_store.update_password_hash(admin.id, new_hash)
+
+    logger.info("Admin '%s' (ID: %s) changed password successfully.", admin.username, admin.id)
+    return {"message": "Password changed successfully."}
 
 
 # -------------------------------------------------------------

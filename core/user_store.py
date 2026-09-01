@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import threading
 import time
 import uuid
@@ -42,6 +41,7 @@ class UserStore:
                         is_active=item.get("is_active", True),
                         created_at=item.get("created_at", time.time()),
                         last_login=item.get("last_login"),
+                        active_session_token=item.get("active_session_token"),
                     )
                     users_map[user.id] = user
                 self._users = users_map
@@ -63,6 +63,7 @@ class UserStore:
                         "is_active": u.is_active,
                         "created_at": u.created_at,
                         "last_login": u.last_login,
+                        "active_session_token": u.active_session_token,
                     }
                     for u in self._users.values()
                 ]
@@ -80,7 +81,6 @@ class UserStore:
             if any(u.role == UserRole.ADMIN and u.is_active for u in self._users.values()):
                 return False, None, "An active admin account already exists. Bootstrap refused."
 
-            # Check if user already exists
             existing = self.get_user_by_username(username)
             if existing:
                 existing.role = UserRole.ADMIN
@@ -117,7 +117,6 @@ class UserStore:
 
     def list_users(self) -> List[UserModel]:
         with self._lock:
-            # Deterministic ordering by created_at then username
             return sorted(
                 list(self._users.values()),
                 key=lambda u: (u.created_at, u.username.lower()),
@@ -146,6 +145,65 @@ class UserStore:
             self._save()
             logger.info("Created user %s with role %s (ID: %s)", clean_username, role.value, user_id)
             return user
+
+    def update_username(self, user_id: str, new_username: str) -> UserModel:
+        """Change a user's username. Validates uniqueness. Raises ValueError on conflict."""
+        with self._lock:
+            user = self.get_user_by_id(user_id)
+            if not user:
+                raise ValueError("User not found.")
+
+            clean = new_username.strip()
+            if not clean:
+                raise ValueError("Username cannot be empty.")
+            if len(clean) > 50:
+                raise ValueError("Username too long (max 50 characters).")
+
+            existing = self.get_user_by_username(clean)
+            if existing and existing.id != user_id:
+                raise ValueError(f"Username '{clean}' is already taken.")
+
+            old_username = user.username
+            user.username = clean
+            self._save()
+            logger.info("Updated username for user ID %s: '%s' -> '%s'", user_id, old_username, clean)
+            return user
+
+    def update_password_hash(self, user_id: str, new_password_hash: str) -> UserModel:
+        """Replace the stored password hash. Caller must pre-verify old password."""
+        with self._lock:
+            user = self.get_user_by_id(user_id)
+            if not user:
+                raise ValueError("User not found.")
+            user.password_hash = new_password_hash
+            self._save()
+            logger.info("Password hash updated for user ID %s", user_id)
+            return user
+
+    # -----------------------------------------------------------------
+    # Single Active Admin Session helpers
+    # -----------------------------------------------------------------
+    def set_active_session(self, user_id: str, token: str) -> None:
+        """Record the single active session token for an admin user."""
+        with self._lock:
+            user = self.get_user_by_id(user_id)
+            if user:
+                user.active_session_token = token
+                self._save()
+
+    def clear_active_session(self, user_id: str, token: str) -> None:
+        """Clear the active session token — only if it matches the supplied token."""
+        with self._lock:
+            user = self.get_user_by_id(user_id)
+            if user and user.active_session_token == token:
+                user.active_session_token = None
+                self._save()
+
+    def get_admin_active_session_token(self, user_id: str) -> Optional[str]:
+        """Return the stored active session token for a user, or None."""
+        with self._lock:
+            user = self.get_user_by_id(user_id)
+            return user.active_session_token if user else None
 
     def remove_user(self, user_id: str) -> bool:
         with self._lock:
