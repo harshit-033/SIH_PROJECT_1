@@ -1,45 +1,28 @@
-# SIH Local AI Workbench
+# SIH Local AI Workbench - Multi-Client Local AI Server
 
-A Windows desktop prototype for offline local-LLM chat, local PDF document analysis and local OCR for scanned PDFs.
+A local offline AI system for multi-client LLM chat, digital PDF document analysis, and local OCR for scanned PDFs over LAN.
 
-The app uses Python, Tkinter, Ollama, a local `llama3.2:latest` model, PyMuPDF and Tesseract OCR. Users can attach a local PDF, extract text page by page, ask questions about the document and receive streamed answers from the local model.
+The server hosts Python, FastAPI, Ollama (`llama3.2:latest`), PyMuPDF, and Tesseract OCR. Multiple client laptops can connect simultaneously via a browser UI to perform document Q&A and general chat without installing AI models or OCR engines on their own machines.
 
 ## Current Status
 
-Milestone 1 - Local interactive chat: complete.
+- **Milestone 1** - Local interactive chat: complete.
+- **Milestone 2** - Digital PDF document analysis: complete.
+- **Milestone 3** - Local OCR for scanned PDFs: complete.
+- **Milestone 4 - Multi-Client Local AI Server**: complete.
 
-Milestone 2 - Digital PDF document analysis: complete at prototype level.
+### Implemented:
 
-Milestone 3 - Local OCR for scanned PDFs: complete at prototype level.
-
-Implemented:
-
-- Windows desktop UI built with Tkinter.
-- Local Ollama chat using `llama3.2:latest`.
-- Streaming responses while the model generates.
-- Local PDF attachment through a file picker.
-- PDF validation for file type, size, page count and readability.
-- Native PDF text extraction with PyMuPDF.
-- OCR fallback for scanned/image-only pages using local Tesseract through `pytesseract`.
-- Mixed PDF support: native pages use native extraction, scanned pages use OCR.
-- Page-aware document text using labels such as `[Page 1 | native]` and `[Page 2 | ocr]`.
-- Three-page scanned PDF verification to confirm page order and page-specific facts survive OCR.
-- Document Analysis mode and General Chat mode.
-- Separate chat history for normal chat and document analysis.
-- Document switching protection so a new PDF does not reuse old document context.
-- Page-aware context budgeting instead of raw mid-page truncation.
-- Clear handling for corrupted PDFs, blank image-only PDFs and unavailable OCR engine cases.
-- Basic metrics in the UI: pages, extracted characters, extraction method, included context pages and LLM latency.
-- Automated tests for PDF workflow, OCR workflow, app state and local model document QA.
-
-Not implemented yet:
-
-- Multi-document RAG.
-- Vector database or embeddings.
-- Source citation UI.
-- Autonomous agents or tool execution.
-- Docker/sandboxing.
-- Fine-tuning or multiple model selection.
+- **Multi-Client Local Server**: FastAPI HTTP API & SSE streaming server with host LAN IP auto-detection.
+- **Browser-Based Web Client**: Modern dark-mode responsive web application accessible over LAN (`static/index.html`).
+- **Session Isolation**: Independent chat history, uploaded documents, and active contexts per client session.
+- **Document Access Security**: Strict ownership checks, path traversal sanitization, and session-specific storage.
+- **Request Concurrency Queue**: Controlled inference worker to prevent saturating local GPU/CPU.
+- **Authentication**: Token-based authentication with salted & hashed credentials.
+- **Offline OCR & Native PDF Extraction**: PyMuPDF native extraction + Tesseract OCR fallback.
+- **Real-Time Token Streaming**: Server-Sent Events (SSE) streaming directly into browser chat.
+- **Desktop Tkinter Client**: Existing `app.py` remains fully operational.
+- **Comprehensive Test Harness**: Automated tests for document workflow, OCR, app state, API routes, session isolation, concurrency, security, and multi-client E2E runs.
 
 ## Project Structure
 

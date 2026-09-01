@@ -2,3 +2,8 @@ ollama
 pillow
 pymupdf
 pytesseract
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+psutil
