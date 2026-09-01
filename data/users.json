@@ -1,0 +1,13 @@
+{
+  "users": [
+    {
+      "id": "usr_67f350de25a0",
+      "username": "admin",
+      "password_hash": "171ea848972610f86dcc4023131c87aa:efe25e62c7d80457026ada876f913545461713756357efa5a28cab82e227d378",
+      "role": "admin",
+      "is_active": true,
+      "created_at": 1788293691.4961166,
+      "last_login": 1788293989.1361995
+    }
+  ]
+}

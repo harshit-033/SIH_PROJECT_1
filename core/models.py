@@ -52,11 +52,38 @@ class DocumentMetadata:
         }
 
 
+class UserRole(str, Enum):
+    ADMIN = "admin"
+    USER = "user"
+
+
+@dataclass
+class UserModel:
+    id: str
+    username: str
+    password_hash: str
+    role: UserRole = UserRole.USER
+    is_active: bool = True
+    created_at: float = field(default_factory=time.time)
+    last_login: Optional[float] = None
+
+    def to_safe_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "username": self.username,
+            "role": self.role.value if isinstance(self.role, UserRole) else str(self.role),
+            "is_active": self.is_active,
+            "created_at": self.created_at,
+            "last_login": self.last_login,
+        }
+
+
 @dataclass
 class SessionData:
     session_id: str
     user_id: str
     username: str
+    role: UserRole = UserRole.USER
     created_at: float = field(default_factory=time.time)
     last_active: float = field(default_factory=time.time)
     mode: AppMode = AppMode.GENERAL_CHAT
@@ -92,4 +119,5 @@ class AuthToken:
     token: str
     user_id: str
     username: str
-    expires_at: float
+    role: UserRole = UserRole.USER
+    expires_at: float = 0.0

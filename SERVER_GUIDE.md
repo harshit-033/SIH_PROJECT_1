@@ -1,18 +1,20 @@
 # SIH Local AI Workbench - Multi-Client Local AI Server Guide
 
-This guide describes how to start, configure, and use the **Multi-Client Local AI Server** architecture.
+This guide describes how to start, configure, and use the **Multi-Client Local AI Server** architecture with **Role-Based Access Control (RBAC)** and **User Management**.
 
 ---
 
 ## 1. Overview & Architecture
 
 The server hosts the entire AI processing pipeline locally:
-- **FastAPI HTTP API & SSE streaming transport**: Exposes endpoints for authentication, chat, document processing, and system telemetry.
+- **FastAPI HTTP API & SSE streaming transport**: Exposes endpoints for authentication, RBAC, chat, document processing, and system telemetry.
+- **Role-Based Access Control (RBAC)**: Exactly two roles (`admin` and `user`). Admins can manage users and use AI workspace. Normal users can use AI workspace only.
 - **Local Ollama Inference**: Hosts `llama3.2:latest` on the host machine.
 - **Local Tesseract OCR**: Provides offline OCR for scanned PDF pages without cloud reliance.
+- **Persistent User Storage**: Local JSON storage (`data/users.json`) with salted PBKDF2-HMAC-SHA256 password hashing.
 - **Isolated Multi-Client Sessions**: Ensures zero cross-talk or document leaking between connected client laptops.
 - **Request Serialization Queue**: Regulates concurrent model inference to maintain optimal local GPU/CPU throughput.
-- **Responsive Web UI**: Accessible from any laptop browser on the same Local Area Network (LAN).
+- **Responsive Web UI**: Accessible from any laptop browser on the same Local Area Network (LAN) with dynamic role-based interface views.
 
 ---
 
@@ -50,62 +52,68 @@ Upon startup, the console displays:
    ```text
    http://<SERVER-LAN-IP>:8000
    ```
-4. Sign in using one of the pre-configured credentials:
-   - **Admin**: `admin` / `admin123`
-   - **Client 1**: `user1` / `pass123`
-   - **Client 2**: `user2` / `pass123`
-   - **Inspector**: `inspector` / `sih2026`
-5. Use **General Chat** or click **Attach PDF** to upload and analyze digital/scanned documents.
+4. Sign in using your credentials:
+   - **Admin Account**: `admin` / `admin123` (Access to AI workspace + Admin Dashboard)
+   - **User Accounts**: `user1` / `pass123`, `user2` / `pass123`, `inspector` / `sih2026` (AI workspace only)
+5. **If Admin**: Click **Admin Dashboard** in the top navigation bar to view, create, or remove users.
+6. Use **General Chat** or click **Attach PDF** to upload and analyze digital/scanned documents.
 
 ---
 
-## 4. API Endpoints Reference
+## 4. Capability Matrix & RBAC
 
-| Method | Endpoint | Description | Auth Required |
+| Capability | Admin Role | User Role | Unauthenticated |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/health` | Server health, Ollama status, OCR availability, host metrics | No |
-| `GET` | `/api/metrics` | Real-time CPU, RAM, and queue statistics | No |
-| `POST` | `/api/auth/login` | Authenticates user & returns bearer token and session ID | No |
-| `POST` | `/api/auth/logout` | Revokes token, ends session, cleans up temporary files | Yes |
-| `GET` | `/api/session` | Retrieves active session state, documents, and messages | Yes |
-| `POST` | `/api/chat` | General chat (supports SSE streaming `stream=true`) | Yes |
-| `POST` | `/api/documents` | Uploads and processes PDF (native extraction + OCR fallback) | Yes |
-| `GET` | `/api/documents` | Lists all documents uploaded within current session | Yes |
-| `POST` | `/api/documents/{id}/select` | Switches active document for session | Yes |
-| `POST` | `/api/documents/{id}/chat` | Document Q&A (supports SSE streaming `stream=true`) | Yes |
-| `POST` | `/api/chat/clear` | Resets conversation history and active document mode | Yes |
+| **Login** | YES | YES | NO |
+| **Use AI Workspace (Chat & Documents)** | YES | YES | NO (401) |
+| **Admin Dashboard UI** | YES | NO (Hidden) | NO |
+| **Create Users (`POST /api/admin/users`)** | YES | NO (403) | NO (401) |
+| **View Users (`GET /api/admin/users`)** | YES | NO (403) | NO (401) |
+| **Remove / Deactivate User (`DELETE /api/admin/users/{id}`)** | YES | NO (403) | NO (401) |
+| **Remove Self / Last Admin** | NO (400) | NO | NO |
+| **Access Another User's Data / Docs** | NO (403) | NO (403) | NO (401) |
+| **Public Self-Registration** | NO (Disabled) | NO (Disabled) | NO (Disabled) |
 
 ---
 
-## 5. Security & Isolation Guarantee
+## 5. API Endpoints Reference
 
-- **Session Data Isolation**: Session A cannot access or list Session B's uploaded files or chat records.
-- **Document Access Guard**: Accessing a document ID belonging to another session immediately returns `403 Forbidden`.
-- **Upload Sanitization**: Filenames are sanitized, safe UUIDs are assigned, and path traversal (`../`) attempts are rejected.
-- **Air-Gapped Operation**: No document or query is ever transmitted to the public internet or third-party cloud services.
+| Method | Endpoint | Description | Access Level |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/health` | Server health, Ollama status, OCR availability, host metrics | Public |
+| `GET` | `/api/metrics` | Real-time CPU, RAM, and queue statistics | Public |
+| `POST` | `/api/auth/login` | Authenticates user & returns bearer token and session ID | Public |
+| `POST` | `/api/auth/logout` | Revokes token, ends session, cleans up temporary files | Authenticated |
+| `GET` | `/api/auth/me` | Returns current user's profile and assigned role | Authenticated |
+| `GET` | `/api/admin/users` | Lists all users with status, role, and summary counts | **Admin Only** |
+| `POST` | `/api/admin/users` | Creates a new user with `role="user"` | **Admin Only** |
+| `DELETE` | `/api/admin/users/{id}` | Deactivates / removes user and invalidates their tokens | **Admin Only** |
+| `GET` | `/api/session` | Retrieves active session state, documents, and messages | Authenticated |
+| `POST` | `/api/chat` | General chat (supports SSE streaming `stream=true`) | Authenticated |
+| `POST` | `/api/documents` | Uploads and processes PDF (native extraction + OCR fallback) | Authenticated |
+| `GET` | `/api/documents` | Lists all documents uploaded within current session | Authenticated |
+| `POST` | `/api/documents/{id}/select` | Switches active document for session | Authenticated |
+| `POST` | `/api/documents/{id}/chat` | Document Q&A (supports SSE streaming `stream=true`) | Authenticated |
+| `POST` | `/api/chat/clear` | Resets conversation history and active document mode | Authenticated |
 
 ---
 
-## 6. Acceptance Scorecard Verification
+## 6. Final Acceptance Scorecard
 
-| Area | Required Result | Verified Result |
-| :--- | :--- | :--- |
-| Current functionality regression | PASS | **PASS** |
-| Core separation from UI | PASS | **PASS** |
-| HTTP API | PASS | **PASS** |
-| Browser client | PASS | **PASS** |
-| Digital PDF | PASS | **PASS** |
-| Scanned PDF and OCR | PASS | **PASS** |
-| Mixed PDF | PASS | **PASS** |
-| Session isolation | PASS | **PASS** |
-| Server-side file isolation | PASS | **PASS** |
-| Streaming or controlled responses | PASS | **PASS** |
-| Request queue/concurrency | PASS | **PASS** |
-| Basic authentication | PASS | **PASS** |
-| LAN access | PASS | **PASS** |
-| Resource limits measured | PASS | **PASS** |
-| Security checks | PASS | **PASS** |
-| Failure/recovery tests | PASS | **PASS** |
-| Automated regression tests | PASS | **PASS** |
-| Three end-to-end runs | PASS | **PASS** |
-| Documentation | UPDATED | **UPDATED** |
+| Area | Status |
+| :--- | :--- |
+| **Authentication** | **PASS** |
+| **Two-Role Model (`admin` / `user`)** | **PASS** |
+| **Admin Bootstrap** | **PASS** |
+| **Admin User Creation** | **PASS** |
+| **Admin User Removal** | **PASS** |
+| **Admin Dashboard UI** | **PASS** |
+| **User AI Access** | **PASS** |
+| **Admin AI Access** | **PASS** |
+| **Server-Side RBAC Enforcement** | **PASS** |
+| **Session Isolation** | **PASS** |
+| **Data Isolation** | **PASS** |
+| **Password Security (PBKDF2/Salted)** | **PASS** |
+| **Multi-Client Tests** | **PASS** |
+| **Regression Tests** | **PASS** |
+| **Documentation** | **UPDATED** |

@@ -8,6 +8,8 @@ from .models import (
     SystemMetrics,
     UserCredentials,
     AuthToken,
+    UserModel,
+    UserRole,
 )
 from .ai_service import AIService
 from .document_service import DocumentService
@@ -15,6 +17,7 @@ from .file_handler import FileHandler
 from .session_manager import SessionManager
 from .request_queue import RequestQueue, RequestTask, RequestStatus
 from .auth import AuthService
+from .user_store import UserStore
 from .monitoring import MonitoringService
 
 __all__ = [
@@ -25,6 +28,8 @@ __all__ = [
     "SystemMetrics",
     "UserCredentials",
     "AuthToken",
+    "UserModel",
+    "UserRole",
     "AIService",
     "DocumentService",
     "FileHandler",
@@ -33,5 +38,6 @@ __all__ = [
     "RequestTask",
     "RequestStatus",
     "AuthService",
+    "UserStore",
     "MonitoringService",
 ]

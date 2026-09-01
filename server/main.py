@@ -23,20 +23,21 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.ai_service import AIService, DEFAULT_MODEL_NAME
-from core.auth import AuthService
+from core.auth import AuthService, hash_password
 from core.document_service import DocumentService
 from core.file_handler import FileHandler
-from core.models import AppMode, DocumentMetadata, UserCredentials
+from core.models import AppMode, AuthToken, DocumentMetadata, UserCredentials, UserModel, UserRole
 from core.monitoring import MonitoringService
 from core.request_queue import RequestQueue
 from core.session_manager import SessionManager
+from core.user_store import UserStore
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,8 +47,8 @@ logger = logging.getLogger("sih_server")
 
 app = FastAPI(
     title="SIH Local AI Workbench Server",
-    description="Multi-Client Local AI Server for Offline Document Analysis & Chat",
-    version="2.0.0",
+    description="Multi-Client Local AI Server with Admin + User RBAC",
+    version="2.1.0",
 )
 
 app.add_middleware(
@@ -58,29 +59,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+user_store = UserStore(storage_path=str(PROJECT_ROOT / "data" / "users.json"))
+auth_service = AuthService(user_store=user_store)
 ai_service = AIService()
 doc_service = DocumentService()
 file_handler = FileHandler(base_upload_dir=str(PROJECT_ROOT / "uploads"))
 session_manager = SessionManager()
-auth_service = AuthService()
 request_queue = RequestQueue(max_concurrent_inference=1)
 monitoring_service = MonitoringService()
 
+
+# -------------------------------------------------------------
+# Request & Response Schemas
+# -------------------------------------------------------------
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class CreateUserRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=50)
+    password: str = Field(..., min_length=4, max_length=128)
+
 
 class ChatRequest(BaseModel):
     message: str
     stream: bool = True
 
+
 class SelectDocRequest(BaseModel):
     document_id: str
 
-async def get_current_session(
+
+# -------------------------------------------------------------
+# Authentication & RBAC Dependencies
+# -------------------------------------------------------------
+async def require_authenticated_user(
     request: Request,
     authorization: Optional[str] = Header(None),
-) -> tuple[str, str]:
+) -> tuple[str, str, str, UserRole, UserModel]:
     token = None
     if authorization and authorization.startswith("Bearer "):
         token = authorization[len("Bearer "):]
@@ -88,11 +105,14 @@ async def get_current_session(
         token = request.query_params["token"]
 
     if not token:
+        # Check for test / development header
         anon_session = request.headers.get("X-Session-ID") or request.query_params.get("session_id")
         if anon_session:
             session = session_manager.get_session(anon_session)
             if session:
-                return session.session_id, session.username
+                user = user_store.get_user_by_id(session.user_id)
+                if user and user.is_active:
+                    return session.session_id, user.id, user.username, user.role, user
 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -106,16 +126,41 @@ async def get_current_session(
             detail="Invalid or expired session token.",
         )
 
+    user = user_store.get_user_by_id(auth_token.user_id)
+    if not user or not user.is_active:
+        auth_service.revoke_token(token)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account is inactive or no longer exists.",
+        )
+
     session = session_manager.get_session(auth_token.token)
     if not session:
         session = session_manager.create_session(
-            user_id=auth_token.user_id, username=auth_token.username
+            user_id=user.id, username=user.username
         )
+        session.role = user.role
         session_manager._sessions[auth_token.token] = session
 
-    return session.session_id, auth_token.username
+    return session.session_id, user.id, user.username, user.role, user
 
 
+async def require_admin(
+    current: tuple[str, str, str, UserRole, UserModel] = Depends(require_authenticated_user),
+) -> UserModel:
+    _, _, username, role, user = current
+    if role != UserRole.ADMIN and role != "admin":
+        logger.warning("Access denied: User '%s' lacks admin privileges for admin endpoint", username)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privilege required to perform this action.",
+        )
+    return user
+
+
+# -------------------------------------------------------------
+# Routes: Health & Metrics
+# -------------------------------------------------------------
 @app.get("/health")
 async def health_check():
     ai_health = ai_service.check_health()
@@ -162,6 +207,9 @@ async def get_metrics():
     }
 
 
+# -------------------------------------------------------------
+# Routes: Authentication & User Profile
+# -------------------------------------------------------------
 @app.post("/api/auth/login")
 async def login(creds: LoginRequest):
     token = auth_service.authenticate(
@@ -176,38 +224,141 @@ async def login(creds: LoginRequest):
     session = session_manager.create_session(
         user_id=token.user_id, username=token.username
     )
+    session.role = token.role
     session_manager._sessions[token.token] = session
 
     return {
         "token": token.token,
         "user_id": token.user_id,
         "username": token.username,
+        "role": token.role.value if isinstance(token.role, UserRole) else str(token.role),
         "expires_at": token.expires_at,
         "session_id": session.session_id,
     }
 
 
 @app.post("/api/auth/logout")
-async def logout(current: tuple[str, str] = Depends(get_current_session)):
-    session_id, username = current
+async def logout(
+    current: tuple[str, str, str, UserRole, UserModel] = Depends(require_authenticated_user),
+):
+    session_id, user_id, username, _, _ = current
     for tok_str, sess in list(session_manager._sessions.items()):
         if sess.session_id == session_id:
             auth_service.revoke_token(tok_str)
             session_manager.delete_session(tok_str)
-    
+
     file_handler.delete_session_files(session_id)
+    logger.info("User '%s' logged out (Session: %s)", username, session_id)
     return {"message": "Successfully logged out."}
 
 
+@app.get("/api/auth/me")
+async def get_current_user_profile(
+    current: tuple[str, str, str, UserRole, UserModel] = Depends(require_authenticated_user),
+):
+    _, _, _, _, user = current
+    return user.to_safe_dict()
+
+
+# -------------------------------------------------------------
+# Routes: Admin User Management
+# -------------------------------------------------------------
+@app.get("/api/admin/users")
+async def list_users(admin: UserModel = Depends(require_admin)):
+    users = user_store.list_users()
+    total_count = len(users)
+    active_count = sum(1 for u in users if u.is_active)
+    admin_count = sum(1 for u in users if u.role == UserRole.ADMIN and u.is_active)
+
+    return {
+        "summary": {
+            "total_users": total_count,
+            "active_users": active_count,
+            "admin_users": admin_count,
+        },
+        "users": [u.to_safe_dict() for u in users],
+    }
+
+
+@app.post("/api/admin/users")
+async def create_user(
+    req: CreateUserRequest,
+    admin: UserModel = Depends(require_admin),
+):
+    clean_username = req.username.strip()
+    if not clean_username:
+        raise HTTPException(status_code=400, detail="Username cannot be empty.")
+
+    if user_store.get_user_by_username(clean_username):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Username '{clean_username}' already exists.",
+        )
+
+    pw_hash = hash_password(req.password)
+    try:
+        new_user = user_store.create_user(
+            username=clean_username,
+            password_hash=pw_hash,
+            role=UserRole.USER,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    logger.info("Admin '%s' created new user '%s' (ID: %s)", admin.username, new_user.username, new_user.id)
+    return {
+        "message": f"User '{new_user.username}' created successfully.",
+        "user": new_user.to_safe_dict(),
+    }
+
+
+@app.delete("/api/admin/users/{user_id}")
+async def remove_user(
+    user_id: str,
+    admin: UserModel = Depends(require_admin),
+):
+    target = user_store.get_user_by_id(user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    if target.id == admin.id or target.username.lower() == admin.username.lower():
+        raise HTTPException(
+            status_code=400,
+            detail="Admin cannot remove their own account through the management interface.",
+        )
+
+    try:
+        user_store.remove_user(user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    # Invalidate all active tokens for this user
+    auth_service.revoke_user_tokens(user_id)
+
+    # Invalidate active sessions
+    for tok_str, sess in list(session_manager._sessions.items()):
+        if sess.user_id == user_id:
+            session_manager.delete_session(tok_str)
+            file_handler.delete_session_files(sess.session_id)
+
+    logger.info("Admin '%s' removed user '%s' (ID: %s)", admin.username, target.username, user_id)
+    return {"message": f"User '{target.username}' removed successfully."}
+
+
+# -------------------------------------------------------------
+# Routes: Session Management
+# -------------------------------------------------------------
 @app.get("/api/session")
-async def get_session_info(current: tuple[str, str] = Depends(get_current_session)):
-    session_id, username = current
+async def get_session_info(
+    current: tuple[str, str, str, UserRole, UserModel] = Depends(require_authenticated_user),
+):
+    session_id, _, username, role, _ = current
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
     docs = [d.to_dict() for d in session.uploaded_documents.values()]
-    
+
     context_info = None
     if session.current_document_context:
         ctx = session.current_document_context
@@ -221,6 +372,7 @@ async def get_session_info(current: tuple[str, str] = Depends(get_current_sessio
     return {
         "session_id": session.session_id,
         "username": session.username,
+        "role": role.value if isinstance(role, UserRole) else str(role),
         "mode": session.mode.value,
         "current_document_id": session.current_document_id,
         "current_document_context": context_info,
@@ -231,17 +383,23 @@ async def get_session_info(current: tuple[str, str] = Depends(get_current_sessio
 
 
 @app.post("/api/chat/clear")
-async def clear_chat(current: tuple[str, str] = Depends(get_current_session)):
-    session_id, _ = current
+async def clear_chat(
+    current: tuple[str, str, str, UserRole, UserModel] = Depends(require_authenticated_user),
+):
+    session_id, _, _, _, _ = current
     session_manager.clear_session_chat(session_id)
     return {"message": "Chat and active document state cleared", "mode": AppMode.GENERAL_CHAT.value}
 
 
+# -------------------------------------------------------------
+# Routes: General Chat
+# -------------------------------------------------------------
 @app.post("/api/chat")
 async def general_chat(
-    req: ChatRequest, current: tuple[str, str] = Depends(get_current_session)
+    req: ChatRequest,
+    current: tuple[str, str, str, UserRole, UserModel] = Depends(require_authenticated_user),
 ):
-    session_id, username = current
+    session_id, _, username, _, _ = current
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -258,7 +416,7 @@ async def general_chat(
             messages = session_manager.get_messages(session_id, AppMode.GENERAL_CHAT)
             messages.append({"role": "user", "content": user_msg})
             result = ai_service.generate_chat(messages)
-            
+
             session_manager.add_message(session_id, AppMode.GENERAL_CHAT, "user", user_msg)
             session_manager.add_message(session_id, AppMode.GENERAL_CHAT, "assistant", result["content"])
             await request_queue.release_slot(task, success=True)
@@ -277,7 +435,7 @@ async def general_chat(
 
             started_at = time.perf_counter()
             loop = asyncio.get_event_loop()
-            
+
             def run_sync_stream():
                 return list(ai_service.generate_chat_stream(messages))
 
@@ -302,12 +460,15 @@ async def general_chat(
     return StreamingResponse(sse_generator(), media_type="text/event-stream")
 
 
+# -------------------------------------------------------------
+# Routes: Document Upload & Management
+# -------------------------------------------------------------
 @app.post("/api/documents")
 async def upload_document(
     file: UploadFile = File(...),
-    current: tuple[str, str] = Depends(get_current_session),
+    current: tuple[str, str, str, UserRole, UserModel] = Depends(require_authenticated_user),
 ):
-    session_id, _ = current
+    session_id, _, _, _, _ = current
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -337,7 +498,7 @@ async def upload_document(
         raise HTTPException(status_code=400, detail="The selected PDF could not be read.")
 
     context = doc_service.create_context(extraction.pages)
-    
+
     meta = DocumentMetadata(
         document_id=doc_id,
         session_id=session_id,
@@ -373,8 +534,10 @@ async def upload_document(
 
 
 @app.get("/api/documents")
-async def list_documents(current: tuple[str, str] = Depends(get_current_session)):
-    session_id, _ = current
+async def list_documents(
+    current: tuple[str, str, str, UserRole, UserModel] = Depends(require_authenticated_user),
+):
+    session_id, _, _, _, _ = current
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -383,9 +546,10 @@ async def list_documents(current: tuple[str, str] = Depends(get_current_session)
 
 @app.post("/api/documents/{document_id}/select")
 async def select_document(
-    document_id: str, current: tuple[str, str] = Depends(get_current_session)
+    document_id: str,
+    current: tuple[str, str, str, UserRole, UserModel] = Depends(require_authenticated_user),
 ):
-    session_id, _ = current
+    session_id, _, _, _, _ = current
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -396,7 +560,7 @@ async def select_document(
     meta = session.uploaded_documents[document_id]
     extraction = doc_service.process_pdf(meta.stored_path)
     context = doc_service.create_context(extraction.pages)
-    
+
     session_manager.select_document(session_id, document_id, extraction, context)
 
     return {
@@ -410,9 +574,9 @@ async def select_document(
 async def document_chat(
     document_id: str,
     req: ChatRequest,
-    current: tuple[str, str] = Depends(get_current_session),
+    current: tuple[str, str, str, UserRole, UserModel] = Depends(require_authenticated_user),
 ):
-    session_id, _ = current
+    session_id, _, _, _, _ = current
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -484,9 +648,13 @@ async def document_chat(
     return StreamingResponse(sse_generator(), media_type="text/event-stream")
 
 
+# -------------------------------------------------------------
+# Static Files & Frontend Serving
+# -------------------------------------------------------------
 STATIC_DIR = PROJECT_ROOT / "static"
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():

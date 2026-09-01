@@ -3,15 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SIH Local AI Workbench - Web Client</title>
+  <title>SIH Local AI Workbench</title>
   <link rel="stylesheet" href="/static/app.css" />
 </head>
 <body>
+  <!-- Login Modal -->
   <div id="login-modal" class="modal-backdrop">
     <div class="modal-card">
       <div class="modal-header">
         <h2>SIH Local AI Workbench</h2>
-        <p>Offline Local Multi-Client Server Login</p>
+        <p>Offline Local AI &bull; Role-Based Access Control</p>
       </div>
       <form id="login-form">
         <div class="form-group">
@@ -28,7 +29,33 @@
     </div>
   </div>
 
+  <!-- Create User Modal (Admin Only) -->
+  <div id="create-user-modal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Create New User</h2>
+        <p>Assign credentials for client workspace access</p>
+      </div>
+      <form id="create-user-form">
+        <div class="form-group">
+          <label for="new-username">Username</label>
+          <input type="text" id="new-username" placeholder="e.g. user03" required autocomplete="off" />
+        </div>
+        <div class="form-group">
+          <label for="new-password">Initial Password</label>
+          <input type="password" id="new-password" placeholder="At least 4 characters" required autocomplete="new-password" />
+        </div>
+        <div id="create-user-error" class="error-msg"></div>
+        <div class="modal-actions">
+          <button type="button" id="cancel-create-user-btn" class="btn btn-secondary">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create User</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div class="app-layout">
+    <!-- Header -->
     <header class="app-header">
       <div class="header-left">
         <h1 class="app-title">SIH Local AI Workbench</h1>
@@ -40,58 +67,107 @@
           <span id="server-status-text">Connecting...</span>
         </div>
         <span class="user-badge" id="user-display">Not logged in</span>
+        <button id="admin-nav-btn" class="btn btn-admin btn-sm hidden">Admin Dashboard</button>
+        <button id="workspace-nav-btn" class="btn btn-primary btn-sm hidden">AI Workspace</button>
         <button id="logout-btn" class="btn btn-secondary btn-sm">Logout</button>
       </div>
     </header>
 
-    <div class="app-toolbar">
-      <div class="toolbar-actions">
-        <label for="pdf-file-input" class="btn btn-primary file-btn">
-          <span>Attach PDF</span>
-          <input type="file" id="pdf-file-input" accept=".pdf" />
-        </label>
-        <button id="clear-btn" class="btn btn-secondary">Clear Chat</button>
-        <span class="doc-badge" id="current-doc-badge">No document selected</span>
+    <!-- AI WORKSPACE VIEW -->
+    <div id="ai-workspace-view" class="view-container">
+      <div class="app-toolbar">
+        <div class="toolbar-actions">
+          <label for="pdf-file-input" class="btn btn-primary file-btn">
+            <span>Attach PDF</span>
+            <input type="file" id="pdf-file-input" accept=".pdf" />
+          </label>
+          <button id="clear-btn" class="btn btn-secondary">Clear Chat</button>
+          <span class="doc-badge" id="current-doc-badge">No document selected</span>
+        </div>
+        <div class="mode-badge" id="mode-badge">General Chat</div>
       </div>
-      <div class="mode-badge" id="mode-badge">General Chat</div>
-    </div>
 
-    <div class="metrics-bar">
-      <div class="metric-pill" id="metric-pages">Pages: -</div>
-      <div class="metric-pill" id="metric-text">Text: -</div>
-      <div class="metric-pill" id="metric-context">Context: -</div>
-      <div class="metric-pill" id="metric-method">Method: -</div>
-      <div class="metric-pill" id="metric-llm">LLM: -</div>
-      <div class="metric-pill" id="metric-host">Host: CPU - | RAM -</div>
-    </div>
+      <div class="metrics-bar">
+        <div class="metric-pill" id="metric-pages">Pages: -</div>
+        <div class="metric-pill" id="metric-text">Text: -</div>
+        <div class="metric-pill" id="metric-context">Context: -</div>
+        <div class="metric-pill" id="metric-method">Method: -</div>
+        <div class="metric-pill" id="metric-llm">LLM: -</div>
+        <div class="metric-pill" id="metric-host">Host: CPU - | RAM -</div>
+      </div>
 
-    <main class="main-workspace">
-      <div class="chat-container">
-        <div class="chat-messages" id="chat-messages">
-          <div class="message system">
-            <div class="msg-header">System</div>
-            <div class="msg-content">General Chat is active. Attach a local PDF to start Document Analysis mode.</div>
+      <main class="main-workspace">
+        <div class="chat-container">
+          <div class="chat-messages" id="chat-messages">
+            <div class="message system">
+              <div class="msg-header">System</div>
+              <div class="msg-content">General Chat is active. Attach a local PDF to start Document Analysis mode.</div>
+            </div>
+          </div>
+
+          <div id="upload-progress" class="upload-progress hidden">
+            <span id="upload-status-text">Processing PDF (Native + OCR)...</span>
+            <div class="progress-bar-container">
+              <div class="progress-bar-fill"></div>
+            </div>
+          </div>
+
+          <div class="input-container">
+            <textarea
+              id="chat-input"
+              rows="3"
+              placeholder="Type your message here... (Shift+Enter for newline, Enter to send)"
+            ></textarea>
+            <button id="send-btn" class="btn btn-success send-btn">Send</button>
           </div>
         </div>
+      </main>
+    </div>
 
-        <div id="upload-progress" class="upload-progress hidden">
-          <span id="upload-status-text">Processing PDF (Native + OCR)...</span>
-          <div class="progress-bar-container">
-            <div class="progress-bar-fill"></div>
-          </div>
+    <!-- ADMIN DASHBOARD VIEW (Admin Only) -->
+    <div id="admin-dashboard-view" class="view-container hidden">
+      <div class="admin-header-bar">
+        <h2>Local AI Admin Panel - User Management</h2>
+        <button id="open-create-user-modal-btn" class="btn btn-primary">+ Create New User</button>
+      </div>
+
+      <div class="admin-stats-row">
+        <div class="stat-card">
+          <div class="stat-title">Total Users</div>
+          <div class="stat-value" id="stat-total-users">-</div>
         </div>
-
-        <div class="input-container">
-          <textarea
-            id="chat-input"
-            rows="3"
-            placeholder="Type your message here... (Shift+Enter for newline, Enter to send)"
-          ></textarea>
-          <button id="send-btn" class="btn btn-success send-btn">Send</button>
+        <div class="stat-card">
+          <div class="stat-title">Active Users</div>
+          <div class="stat-value" id="stat-active-users">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Admins</div>
+          <div class="stat-value" id="stat-admin-users">-</div>
         </div>
       </div>
-    </main>
 
+      <div class="admin-table-container">
+        <table class="user-table">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Created At</th>
+              <th>Last Login</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="user-table-body">
+            <tr>
+              <td colspan="6" style="text-align: center; color: #8b949e;">Loading users...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Footer -->
     <footer class="app-footer">
       <span id="footer-status">Ready. Offline AI inference running locally on host machine.</span>
       <span class="server-endpoint" id="endpoint-info">API: /api</span>
